@@ -1,0 +1,1489 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Feature Flag Engine</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:          #f1f5f9;
+      --sidebar-bg:  #0f172a;
+      --sidebar-hov: #1e293b;
+      --sidebar-act: rgba(99,102,241,.18);
+      --card:        #ffffff;
+      --border:      #e2e8f0;
+      --text:        #0f172a;
+      --muted:       #64748b;
+      --primary:     #6366f1;
+      --primary-dk:  #4f46e5;
+      --green:       #22c55e;
+      --red:         #ef4444;
+      --orange:      #f97316;
+      --blue:        #3b82f6;
+      --purple:      #8b5cf6;
+      --r:           8px;
+      --sh:          0 1px 3px rgba(0,0,0,.08),0 1px 2px rgba(0,0,0,.05);
+      --sh-md:       0 4px 12px rgba(0,0,0,.08);
+      --sh-lg:       0 20px 40px rgba(0,0,0,.12);
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      font-size: 14px;
+    }
+
+    /* ── Header ── */
+    .header {
+      background: var(--sidebar-bg);
+      padding: 0 24px;
+      height: 56px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid #1e293b;
+      flex-shrink: 0;
+      z-index: 10;
+    }
+    .header-logo {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      color: #fff;
+      font-weight: 700;
+      font-size: 15px;
+      letter-spacing: -.2px;
+    }
+    .header-logo svg { flex-shrink: 0; }
+    .header-pill {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      background: rgba(255,255,255,.06);
+      border: 1px solid rgba(255,255,255,.1);
+      border-radius: 20px;
+      padding: 4px 12px;
+      font-size: 12px;
+      color: #94a3b8;
+    }
+    .dot {
+      width: 7px; height: 7px;
+      border-radius: 50%;
+      background: var(--green);
+      box-shadow: 0 0 0 2px rgba(34,197,94,.3);
+    }
+    .dot.red { background: var(--red); box-shadow: 0 0 0 2px rgba(239,68,68,.3); }
+
+    /* ── Layout ── */
+    .layout {
+      display: flex;
+      flex: 1;
+      overflow: hidden;
+    }
+
+    /* ── Sidebar ── */
+    .sidebar {
+      width: 264px;
+      background: var(--sidebar-bg);
+      border-right: 1px solid #1e293b;
+      display: flex;
+      flex-direction: column;
+      flex-shrink: 0;
+      overflow: hidden;
+    }
+    .sidebar-top {
+      padding: 16px;
+      border-bottom: 1px solid #1e293b;
+    }
+    .btn-new {
+      width: 100%;
+      background: var(--primary);
+      color: #fff;
+      border: none;
+      border-radius: var(--r);
+      padding: 9px 16px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 7px;
+      transition: background .15s;
+    }
+    .btn-new:hover { background: var(--primary-dk); }
+
+    .sidebar-search {
+      padding: 12px 16px 8px;
+    }
+    .search-input {
+      width: 100%;
+      background: #1e293b;
+      border: 1px solid #334155;
+      border-radius: 6px;
+      padding: 7px 10px 7px 32px;
+      color: #e2e8f0;
+      font-size: 13px;
+      outline: none;
+      transition: border-color .15s;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2.5'%3E%3Ccircle cx='11' cy='11' r='8'/%3E%3Cpath d='m21 21-4.35-4.35'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: 10px center;
+    }
+    .search-input:focus { border-color: var(--primary); }
+    .search-input::placeholder { color: #475569; }
+
+    .sidebar-label {
+      padding: 8px 16px 6px;
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+      color: #475569;
+    }
+
+    .flag-list {
+      flex: 1;
+      overflow-y: auto;
+      padding: 4px 8px 16px;
+    }
+    .flag-list::-webkit-scrollbar { width: 4px; }
+    .flag-list::-webkit-scrollbar-track { background: transparent; }
+    .flag-list::-webkit-scrollbar-thumb { background: #334155; border-radius: 2px; }
+
+    .flag-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 9px 10px;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: background .12s;
+      margin-bottom: 2px;
+      color: #94a3b8;
+    }
+    .flag-item:hover { background: var(--sidebar-hov); color: #e2e8f0; }
+    .flag-item.active { background: var(--sidebar-act); color: #a5b4fc; }
+    .flag-item.active .flag-item-name { color: #c7d2fe; font-weight: 600; }
+
+    .flag-status-dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      flex-shrink: 0;
+      transition: background .2s;
+    }
+    .flag-status-dot.on  { background: var(--green); }
+    .flag-status-dot.off { background: #475569; }
+
+    .flag-item-name {
+      flex: 1;
+      font-size: 13px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .flag-item-count {
+      font-size: 11px;
+      background: #1e293b;
+      color: #64748b;
+      border-radius: 10px;
+      padding: 1px 7px;
+    }
+    .flag-item.active .flag-item-count { background: rgba(99,102,241,.2); color: #a5b4fc; }
+
+    .sidebar-empty {
+      padding: 32px 16px;
+      text-align: center;
+      color: #475569;
+      font-size: 13px;
+      line-height: 1.6;
+    }
+
+    /* ── Main content ── */
+    .main {
+      flex: 1;
+      overflow-y: auto;
+      padding: 28px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+    .main::-webkit-scrollbar { width: 6px; }
+    .main::-webkit-scrollbar-track { background: transparent; }
+    .main::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+
+    /* ── Empty state ── */
+    .empty-state {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 16px;
+      color: var(--muted);
+      text-align: center;
+    }
+    .empty-icon {
+      width: 72px; height: 72px;
+      background: #e0e7ff;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .empty-state h2 { font-size: 18px; font-weight: 600; color: var(--text); }
+    .empty-state p { font-size: 14px; max-width: 320px; line-height: 1.6; }
+
+    /* ── Card ── */
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--r);
+      box-shadow: var(--sh);
+    }
+
+    /* ── Flag header card ── */
+    .flag-header-card {
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+    .flag-header-row {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 16px;
+    }
+    .flag-title-block { flex: 1; min-width: 0; }
+    .flag-name-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .flag-name {
+      font-size: 20px;
+      font-weight: 700;
+      letter-spacing: -.3px;
+      word-break: break-all;
+    }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 3px 10px;
+      border-radius: 20px;
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .05em;
+    }
+    .badge-green  { background: #dcfce7; color: #15803d; }
+    .badge-red    { background: #fee2e2; color: #b91c1c; }
+    .badge-blue   { background: #dbeafe; color: #1d4ed8; }
+    .badge-purple { background: #ede9fe; color: #6d28d9; }
+    .badge-orange { background: #ffedd5; color: #c2410c; }
+    .badge-gray   { background: #f1f5f9; color: #475569; }
+
+    .flag-desc {
+      margin-top: 6px;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.5;
+    }
+    .flag-desc.empty { font-style: italic; }
+
+    .flag-header-actions {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-shrink: 0;
+    }
+
+    /* Toggle switch */
+    .toggle-wrap {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .toggle-label {
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--muted);
+    }
+    .toggle {
+      position: relative;
+      width: 44px; height: 24px;
+      cursor: pointer;
+      flex-shrink: 0;
+    }
+    .toggle input { opacity: 0; width: 0; height: 0; position: absolute; }
+    .toggle-track {
+      position: absolute;
+      inset: 0;
+      background: #cbd5e1;
+      border-radius: 12px;
+      transition: background .2s;
+    }
+    .toggle input:checked + .toggle-track { background: var(--primary); }
+    .toggle-thumb {
+      position: absolute;
+      top: 3px; left: 3px;
+      width: 18px; height: 18px;
+      background: #fff;
+      border-radius: 50%;
+      transition: transform .2s;
+      box-shadow: 0 1px 3px rgba(0,0,0,.2);
+      pointer-events: none;
+    }
+    .toggle input:checked ~ .toggle-thumb { transform: translateX(20px); }
+
+    .btn-danger-outline {
+      background: transparent;
+      color: var(--red);
+      border: 1px solid #fecaca;
+      border-radius: 6px;
+      padding: 7px 14px;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      transition: background .15s, border-color .15s;
+    }
+    .btn-danger-outline:hover { background: #fff1f2; border-color: var(--red); }
+
+    .flag-meta {
+      display: flex;
+      gap: 20px;
+      flex-wrap: wrap;
+      padding-top: 8px;
+      border-top: 1px solid var(--border);
+    }
+    .meta-item {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .meta-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; font-weight: 600; }
+    .meta-value { font-size: 13px; font-weight: 500; }
+
+    /* ── Tabs ── */
+    .tabs-bar {
+      display: flex;
+      border-bottom: 2px solid var(--border);
+      padding: 0 24px;
+      background: var(--card);
+      border-radius: var(--r) var(--r) 0 0;
+      border: 1px solid var(--border);
+      border-bottom: none;
+    }
+    .tab-btn {
+      padding: 12px 16px;
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--muted);
+      background: none;
+      border: none;
+      border-bottom: 2px solid transparent;
+      margin-bottom: -1px;
+      cursor: pointer;
+      transition: color .15s, border-color .15s;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .tab-btn:hover { color: var(--text); }
+    .tab-btn.active { color: var(--primary); border-bottom-color: var(--primary); font-weight: 600; }
+    .tab-count {
+      background: #f1f5f9;
+      color: var(--muted);
+      border-radius: 10px;
+      padding: 1px 7px;
+      font-size: 11px;
+    }
+    .tab-btn.active .tab-count { background: #e0e7ff; color: var(--primary); }
+
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
+
+    .tab-body {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-top: none;
+      border-radius: 0 0 var(--r) var(--r);
+      overflow: hidden;
+    }
+
+    /* ── Overrides ── */
+    .overrides-table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    .overrides-table th {
+      text-align: left;
+      padding: 10px 20px;
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: .05em;
+      color: var(--muted);
+      background: #f8fafc;
+      border-bottom: 1px solid var(--border);
+    }
+    .overrides-table td {
+      padding: 12px 20px;
+      border-bottom: 1px solid var(--border);
+      vertical-align: middle;
+    }
+    .overrides-table tr:last-child td { border-bottom: none; }
+    .overrides-table tr:hover td { background: #f8fafc; }
+
+    .btn-icon {
+      background: transparent;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 5px 8px;
+      cursor: pointer;
+      color: var(--muted);
+      display: inline-flex;
+      align-items: center;
+      transition: background .12s, color .12s;
+    }
+    .btn-icon:hover { background: #fff1f2; color: var(--red); border-color: #fecaca; }
+
+    .add-override-form {
+      display: flex;
+      gap: 10px;
+      padding: 16px 20px;
+      background: #f8fafc;
+      border-top: 1px solid var(--border);
+      align-items: flex-end;
+      flex-wrap: wrap;
+    }
+    .form-group {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+    }
+    .form-label {
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: .05em;
+      color: var(--muted);
+    }
+    .form-input, .form-select {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 7px 10px;
+      font-size: 13px;
+      color: var(--text);
+      outline: none;
+      transition: border-color .15s, box-shadow .15s;
+      min-width: 120px;
+    }
+    .form-input:focus, .form-select:focus {
+      border-color: var(--primary);
+      box-shadow: 0 0 0 3px rgba(99,102,241,.08);
+    }
+    .form-input::placeholder { color: #94a3b8; }
+
+    .btn-primary {
+      background: var(--primary);
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      padding: 8px 16px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      transition: background .15s;
+      white-space: nowrap;
+    }
+    .btn-primary:hover { background: var(--primary-dk); }
+    .btn-primary:disabled { opacity: .5; cursor: not-allowed; }
+
+    .overrides-empty {
+      padding: 32px;
+      text-align: center;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    /* ── Evaluate ── */
+    .evaluate-layout {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0;
+    }
+    @media (max-width: 800px) { .evaluate-layout { grid-template-columns: 1fr; } }
+
+    .eval-inputs {
+      padding: 24px;
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+    .eval-inputs h3 { font-size: 13px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+
+    .eval-result-panel {
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+    .eval-result-panel h3 { font-size: 13px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+
+    .eval-placeholder {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      color: var(--muted);
+      font-size: 13px;
+      text-align: center;
+      padding: 32px;
+    }
+
+    .eval-result-card {
+      border-radius: var(--r);
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 12px;
+      text-align: center;
+      animation: resultIn .25s ease;
+    }
+    @keyframes resultIn {
+      from { opacity: 0; transform: translateY(6px) scale(.98); }
+      to   { opacity: 1; transform: none; }
+    }
+    .eval-result-card.enabled  { background: #f0fdf4; border: 2px solid #86efac; }
+    .eval-result-card.disabled { background: #fff1f2; border: 2px solid #fca5a5; }
+
+    .eval-result-icon {
+      width: 48px; height: 48px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 22px;
+    }
+    .eval-result-card.enabled  .eval-result-icon { background: #bbf7d0; }
+    .eval-result-card.disabled .eval-result-icon { background: #fecaca; }
+
+    .eval-result-state {
+      font-size: 20px;
+      font-weight: 800;
+      letter-spacing: -.3px;
+    }
+    .eval-result-card.enabled  .eval-result-state { color: #15803d; }
+    .eval-result-card.disabled .eval-result-state { color: #b91c1c; }
+
+    .eval-reason-label { font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; margin-top: 4px; }
+
+    .eval-history { margin-top: 8px; }
+    .eval-history-title { font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; margin-bottom: 8px; }
+    .eval-history-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 0;
+      border-bottom: 1px solid var(--border);
+      font-size: 12px;
+      color: var(--muted);
+    }
+    .eval-history-item:last-child { border-bottom: none; }
+    .eval-history-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+    .eval-ctx { color: var(--text); font-weight: 500; flex: 1; }
+
+    /* ── Modal ── */
+    .modal-backdrop {
+      position: fixed; inset: 0;
+      background: rgba(15,23,42,.5);
+      z-index: 100;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity .2s;
+    }
+    .modal-backdrop.open { opacity: 1; pointer-events: all; }
+    .modal {
+      background: var(--card);
+      border-radius: 12px;
+      box-shadow: var(--sh-lg);
+      width: 100%;
+      max-width: 480px;
+      transform: translateY(8px) scale(.98);
+      transition: transform .2s;
+    }
+    .modal-backdrop.open .modal { transform: none; }
+    .modal-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 20px 24px 0;
+    }
+    .modal-header h2 { font-size: 16px; font-weight: 700; }
+    .btn-close {
+      background: none; border: none; cursor: pointer;
+      color: var(--muted); padding: 4px; border-radius: 4px;
+      line-height: 1; transition: background .12s;
+    }
+    .btn-close:hover { background: var(--border); color: var(--text); }
+    .modal-body {
+      padding: 20px 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+    .modal-footer {
+      padding: 0 24px 20px;
+      display: flex;
+      justify-content: flex-end;
+      gap: 10px;
+    }
+    .btn-secondary {
+      background: transparent;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 8px 16px;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background .12s;
+    }
+    .btn-secondary:hover { background: var(--bg); }
+
+    .modal-form-group { display: flex; flex-direction: column; gap: 6px; }
+    .modal-label { font-size: 13px; font-weight: 500; }
+    .modal-input, .modal-textarea {
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 9px 12px;
+      font-size: 14px;
+      outline: none;
+      font-family: inherit;
+      transition: border-color .15s, box-shadow .15s;
+    }
+    .modal-input:focus, .modal-textarea:focus {
+      border-color: var(--primary);
+      box-shadow: 0 0 0 3px rgba(99,102,241,.08);
+    }
+    .modal-textarea { resize: vertical; min-height: 72px; }
+    .modal-toggle-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: var(--bg);
+      border-radius: 6px;
+      padding: 12px 14px;
+    }
+    .modal-toggle-info { display: flex; flex-direction: column; gap: 2px; }
+    .modal-toggle-title { font-size: 13px; font-weight: 500; }
+    .modal-toggle-sub { font-size: 12px; color: var(--muted); }
+    .input-hint { font-size: 12px; color: var(--muted); }
+    .input-error { font-size: 12px; color: var(--red); display: none; }
+
+    /* ── Toast ── */
+    .toast-container {
+      position: fixed;
+      bottom: 24px; right: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      z-index: 200;
+      pointer-events: none;
+    }
+    .toast {
+      background: var(--sidebar-bg);
+      color: #e2e8f0;
+      border-radius: 8px;
+      padding: 12px 16px;
+      font-size: 13px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      box-shadow: var(--sh-lg);
+      transform: translateX(110%);
+      transition: transform .25s cubic-bezier(.34,1.56,.64,1);
+      pointer-events: all;
+      min-width: 240px;
+      max-width: 360px;
+    }
+    .toast.show { transform: none; }
+    .toast.hide { transform: translateX(110%); transition-timing-function: ease-in; }
+    .toast-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+    .toast-dot.green  { background: var(--green); }
+    .toast-dot.red    { background: var(--red); }
+    .toast-dot.blue   { background: var(--blue); }
+
+    /* ── Loading spinner ── */
+    .spinner {
+      width: 16px; height: 16px;
+      border: 2px solid rgba(255,255,255,.3);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin .6s linear infinite;
+      display: inline-block;
+    }
+    .spinner.dark {
+      border-color: rgba(99,102,241,.2);
+      border-top-color: var(--primary);
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Confirm dialog ── */
+    .confirm-backdrop {
+      position: fixed; inset: 0;
+      background: rgba(15,23,42,.5);
+      z-index: 150;
+      display: flex; align-items: center; justify-content: center;
+      opacity: 0; pointer-events: none; transition: opacity .15s;
+    }
+    .confirm-backdrop.open { opacity: 1; pointer-events: all; }
+    .confirm-box {
+      background: var(--card);
+      border-radius: 10px;
+      box-shadow: var(--sh-lg);
+      padding: 24px;
+      max-width: 360px;
+      width: 100%;
+      transform: scale(.95);
+      transition: transform .15s;
+    }
+    .confirm-backdrop.open .confirm-box { transform: none; }
+    .confirm-box h3 { font-size: 15px; font-weight: 700; margin-bottom: 8px; }
+    .confirm-box p { font-size: 13px; color: var(--muted); margin-bottom: 20px; line-height: 1.5; }
+    .confirm-actions { display: flex; justify-content: flex-end; gap: 10px; }
+    .btn-danger {
+      background: var(--red); color: #fff; border: none;
+      border-radius: 6px; padding: 8px 16px; font-size: 13px;
+      font-weight: 600; cursor: pointer; transition: background .12s;
+    }
+    .btn-danger:hover { background: #dc2626; }
+  </style>
+</head>
+<body>
+
+<!-- Header -->
+<header class="header">
+  <div class="header-logo">
+    <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
+      <rect width="28" height="28" rx="7" fill="#6366f1"/>
+      <path d="M8 14h3l2-5 3 10 2-5h2" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+    Feature Flag Engine
+  </div>
+  <div class="header-pill">
+    <div class="dot" id="api-dot"></div>
+    <span id="api-status">Connecting…</span>
+  </div>
+</header>
+
+<!-- Layout -->
+<div class="layout">
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div class="sidebar-top">
+      <button class="btn-new" onclick="openCreateModal()">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        New Flag
+      </button>
+    </div>
+    <div class="sidebar-search">
+      <input class="search-input" type="text" id="search-input" placeholder="Search flags…" oninput="filterFlags(this.value)" />
+    </div>
+    <div class="sidebar-label">Flags</div>
+    <div class="flag-list" id="flag-list">
+      <div class="sidebar-empty">No flags yet.<br/>Create your first one.</div>
+    </div>
+  </aside>
+
+  <!-- Main -->
+  <main class="main" id="main-content">
+    <!-- Empty state -->
+    <div class="empty-state" id="empty-state">
+      <div class="empty-icon">
+        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#6366f1" stroke-width="1.8">
+          <path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/>
+        </svg>
+      </div>
+      <h2>Select a feature flag</h2>
+      <p>Choose a flag from the sidebar or create a new one to get started.</p>
+      <button class="btn-primary" onclick="openCreateModal()">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        Create Flag
+      </button>
+    </div>
+
+    <!-- Flag detail (hidden until selected) -->
+    <div id="flag-detail" style="display:none; display:flex; flex-direction:column; gap:20px;">
+
+      <!-- Flag header card -->
+      <div class="card flag-header-card">
+        <div class="flag-header-row">
+          <div class="flag-title-block">
+            <div class="flag-name-row">
+              <span class="flag-name" id="detail-name"></span>
+              <span class="badge" id="detail-badge"></span>
+            </div>
+            <div class="flag-desc" id="detail-desc"></div>
+          </div>
+          <div class="flag-header-actions">
+            <label class="toggle" id="global-toggle-wrap" title="Toggle global state">
+              <input type="checkbox" id="global-toggle" onchange="onGlobalToggle(this.checked)" />
+              <span class="toggle-track"></span>
+              <span class="toggle-thumb"></span>
+            </label>
+            <button class="btn-danger-outline" onclick="confirmDeleteFlag()">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg>
+              Delete
+            </button>
+          </div>
+        </div>
+        <div class="flag-meta">
+          <div class="meta-item">
+            <span class="meta-label">Overrides</span>
+            <span class="meta-value" id="detail-override-count">0</span>
+          </div>
+          <div class="meta-item">
+            <span class="meta-label">Created</span>
+            <span class="meta-value" id="detail-created"></span>
+          </div>
+          <div class="meta-item">
+            <span class="meta-label">Updated</span>
+            <span class="meta-value" id="detail-updated"></span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tabs -->
+      <div>
+        <div class="tabs-bar">
+          <button class="tab-btn active" id="tab-btn-overrides" onclick="switchTab('overrides')">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M13.41 3.08a9 9 0 0 1 0 17.84M10.59 3.08a9 9 0 0 0 0 17.84"/></svg>
+            Overrides
+            <span class="tab-count" id="tab-count-overrides">0</span>
+          </button>
+          <button class="tab-btn" id="tab-btn-evaluate" onclick="switchTab('evaluate')">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+            Evaluate
+          </button>
+        </div>
+
+        <div class="tab-body">
+          <!-- Overrides tab -->
+          <div class="tab-panel active" id="tab-overrides">
+            <table class="overrides-table">
+              <thead>
+                <tr>
+                  <th>Type</th>
+                  <th>Target ID</th>
+                  <th>State</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="overrides-tbody"></tbody>
+            </table>
+            <div class="overrides-empty" id="overrides-empty" style="display:none">
+              No overrides yet — the global default applies to all users, groups, and regions.
+            </div>
+            <!-- Add override form -->
+            <div class="add-override-form">
+              <div class="form-group">
+                <label class="form-label">Type</label>
+                <select class="form-select" id="ov-type">
+                  <option value="user">User</option>
+                  <option value="group">Group</option>
+                  <option value="region">Region</option>
+                </select>
+              </div>
+              <div class="form-group" style="flex:1; min-width:140px;">
+                <label class="form-label">Target ID</label>
+                <input class="form-input" id="ov-target" placeholder="e.g. user-123, beta-users, us-east-1" />
+              </div>
+              <div class="form-group">
+                <label class="form-label">State</label>
+                <select class="form-select" id="ov-enabled">
+                  <option value="true">Enabled</option>
+                  <option value="false">Disabled</option>
+                </select>
+              </div>
+              <button class="btn-primary" onclick="addOverride()" id="add-ov-btn">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                Add Override
+              </button>
+            </div>
+          </div>
+
+          <!-- Evaluate tab -->
+          <div class="tab-panel" id="tab-evaluate">
+            <div class="evaluate-layout">
+              <div class="eval-inputs">
+                <h3>Evaluation Context</h3>
+                <div class="form-group">
+                  <label class="form-label">
+                    <span class="badge badge-blue" style="font-size:10px; padding:2px 8px;">User</span>&nbsp;User ID
+                  </label>
+                  <input class="form-input" id="eval-userid" placeholder="e.g. user-123" />
+                </div>
+                <div class="form-group">
+                  <label class="form-label">
+                    <span class="badge badge-purple" style="font-size:10px; padding:2px 8px;">Group</span>&nbsp;Group ID
+                  </label>
+                  <input class="form-input" id="eval-groupid" placeholder="e.g. beta-testers" />
+                </div>
+                <div class="form-group">
+                  <label class="form-label">
+                    <span class="badge badge-orange" style="font-size:10px; padding:2px 8px;">Region</span>&nbsp;Region
+                  </label>
+                  <input class="form-input" id="eval-region" placeholder="e.g. us-east-1" />
+                </div>
+                <button class="btn-primary" onclick="runEvaluate()" id="eval-btn" style="align-self:flex-start;">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                  Evaluate
+                </button>
+                <p style="font-size:11px; color:var(--muted); line-height:1.6;">
+                  Precedence: <strong>User</strong> &gt; <strong>Group</strong> &gt; <strong>Region</strong> &gt; <strong>Global default</strong>
+                </p>
+              </div>
+              <div class="eval-result-panel">
+                <h3>Result</h3>
+                <div id="eval-result-area">
+                  <div class="eval-placeholder">
+                    <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#cbd5e1" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                    Fill in a context and click Evaluate
+                  </div>
+                </div>
+                <div id="eval-history" style="display:none">
+                  <div class="eval-history-title">Recent evaluations</div>
+                  <div id="eval-history-list"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<!-- Create Flag Modal -->
+<div class="modal-backdrop" id="create-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <h2>Create Feature Flag</h2>
+      <button class="btn-close" onclick="closeCreateModal()">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <div class="modal-body">
+      <div class="modal-form-group">
+        <label class="modal-label">Flag name <span style="color:var(--red)">*</span></label>
+        <input class="modal-input" id="create-name" placeholder="e.g. dark-mode, new-checkout-flow" oninput="validateCreateName()" />
+        <span class="input-hint">Letters, numbers, underscores and hyphens only.</span>
+        <span class="input-error" id="create-name-error"></span>
+      </div>
+      <div class="modal-form-group">
+        <label class="modal-label">Description</label>
+        <textarea class="modal-textarea" id="create-desc" placeholder="What does this flag control?"></textarea>
+      </div>
+      <div class="modal-toggle-row">
+        <div class="modal-toggle-info">
+          <span class="modal-toggle-title">Enable globally</span>
+          <span class="modal-toggle-sub">Applies to all users by default</span>
+        </div>
+        <label class="toggle">
+          <input type="checkbox" id="create-enabled" />
+          <span class="toggle-track"></span>
+          <span class="toggle-thumb"></span>
+        </label>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-secondary" onclick="closeCreateModal()">Cancel</button>
+      <button class="btn-primary" id="create-submit-btn" onclick="submitCreateFlag()">
+        Create Flag
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- Confirm delete dialog -->
+<div class="confirm-backdrop" id="confirm-dialog">
+  <div class="confirm-box">
+    <h3 id="confirm-title">Delete flag?</h3>
+    <p id="confirm-message"></p>
+    <div class="confirm-actions">
+      <button class="btn-secondary" onclick="closeConfirm()">Cancel</button>
+      <button class="btn-danger" id="confirm-ok-btn">Delete</button>
+    </div>
+  </div>
+</div>
+
+<!-- Toast container -->
+<div class="toast-container" id="toast-container"></div>
+
+<script>
+// ── State ──────────────────────────────────────────────────────────────────
+const API = '/api';
+let allFlags = [];
+let selectedFlag = null;
+let evalHistory = [];
+let confirmCallback = null;
+
+// ── API helpers ────────────────────────────────────────────────────────────
+async function apiFetch(path, options = {}) {
+  const res = await fetch(API + path, {
+    headers: { 'Content-Type': 'application/json' },
+    ...options,
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({ error: 'Request failed' }));
+    throw new Error(body.error || `HTTP ${res.status}`);
+  }
+  if (res.status === 204) return null;
+  return res.json();
+}
+
+// ── Init ───────────────────────────────────────────────────────────────────
+async function init() {
+  try {
+    await fetch('/health');
+    updateApiStatus(true);
+  } catch {
+    updateApiStatus(false);
+  }
+  await loadFlags();
+}
+
+function updateApiStatus(ok) {
+  const dot = document.getElementById('api-dot');
+  const label = document.getElementById('api-status');
+  dot.className = 'dot' + (ok ? '' : ' red');
+  label.textContent = ok ? 'API Connected' : 'API Unreachable';
+}
+
+// ── Flags ──────────────────────────────────────────────────────────────────
+async function loadFlags() {
+  try {
+    allFlags = await apiFetch('/flags');
+    renderFlagList(allFlags);
+    if (selectedFlag) {
+      const refreshed = allFlags.find(f => f.name === selectedFlag.name);
+      if (refreshed) { selectedFlag = refreshed; renderFlagDetail(); }
+      else { selectedFlag = null; showEmptyState(); }
+    }
+  } catch (e) {
+    toast('Failed to load flags: ' + e.message, 'red');
+  }
+}
+
+function renderFlagList(flags) {
+  const el = document.getElementById('flag-list');
+  if (!flags.length) {
+    el.innerHTML = '<div class="sidebar-empty">No flags yet.<br/>Create your first one.</div>';
+    return;
+  }
+  el.innerHTML = flags.map(f => `
+    <div class="flag-item ${selectedFlag?.name === f.name ? 'active' : ''}"
+         onclick="selectFlag('${f.name}')" id="flag-item-${f.name}">
+      <span class="flag-status-dot ${f.globalEnabled ? 'on' : 'off'}"></span>
+      <span class="flag-item-name">${f.name}</span>
+      ${f.overrides.length ? `<span class="flag-item-count">${f.overrides.length}</span>` : ''}
+    </div>
+  `).join('');
+}
+
+function filterFlags(query) {
+  const q = query.toLowerCase().trim();
+  const filtered = q ? allFlags.filter(f => f.name.includes(q)) : allFlags;
+  renderFlagList(filtered);
+}
+
+async function selectFlag(name) {
+  try {
+    // Fetch fresh copy to get latest overrides
+    selectedFlag = await apiFetch('/flags/' + name);
+    renderFlagList(allFlags); // re-render to update active class
+    renderFlagDetail();
+    evalHistory = [];
+    document.getElementById('eval-history').style.display = 'none';
+    document.getElementById('eval-history-list').innerHTML = '';
+    document.getElementById('eval-result-area').innerHTML = `
+      <div class="eval-placeholder">
+        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#cbd5e1" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+        Fill in a context and click Evaluate
+      </div>`;
+  } catch (e) {
+    toast('Failed to load flag: ' + e.message, 'red');
+  }
+}
+
+function showEmptyState() {
+  document.getElementById('empty-state').style.display = 'flex';
+  document.getElementById('flag-detail').style.display = 'none';
+}
+
+function renderFlagDetail() {
+  const f = selectedFlag;
+  document.getElementById('empty-state').style.display = 'none';
+  document.getElementById('flag-detail').style.display = 'flex';
+
+  document.getElementById('detail-name').textContent = f.name;
+
+  const badge = document.getElementById('detail-badge');
+  badge.textContent = f.globalEnabled ? 'Enabled' : 'Disabled';
+  badge.className = 'badge ' + (f.globalEnabled ? 'badge-green' : 'badge-red');
+
+  const desc = document.getElementById('detail-desc');
+  desc.textContent = f.description || 'No description';
+  desc.className = 'flag-desc' + (f.description ? '' : ' empty');
+
+  document.getElementById('global-toggle').checked = f.globalEnabled;
+  document.getElementById('detail-override-count').textContent = f.overrides.length;
+  document.getElementById('detail-created').textContent = fmtDate(f.createdAt);
+  document.getElementById('detail-updated').textContent = fmtDate(f.updatedAt);
+
+  renderOverridesTable(f.overrides);
+  document.getElementById('tab-count-overrides').textContent = f.overrides.length;
+}
+
+// ── Global toggle ──────────────────────────────────────────────────────────
+async function onGlobalToggle(enabled) {
+  try {
+    const updated = await apiFetch('/flags/' + selectedFlag.name, {
+      method: 'PATCH',
+      body: JSON.stringify({ globalEnabled: enabled }),
+    });
+    selectedFlag = updated;
+    // Sync allFlags cache
+    const idx = allFlags.findIndex(f => f.name === updated.name);
+    if (idx !== -1) allFlags[idx] = updated;
+    renderFlagDetail();
+    renderFlagList(allFlags);
+    toast(`"${updated.name}" ${enabled ? 'enabled' : 'disabled'} globally`, 'green');
+  } catch (e) {
+    // revert toggle
+    document.getElementById('global-toggle').checked = !enabled;
+    toast('Update failed: ' + e.message, 'red');
+  }
+}
+
+// ── Delete flag ────────────────────────────────────────────────────────────
+function confirmDeleteFlag() {
+  document.getElementById('confirm-title').textContent = 'Delete flag?';
+  document.getElementById('confirm-message').textContent =
+    `"${selectedFlag.name}" and all its overrides will be permanently deleted.`;
+  document.getElementById('confirm-ok-btn').textContent = 'Delete';
+  confirmCallback = doDeleteFlag;
+  openConfirm();
+}
+
+async function doDeleteFlag() {
+  try {
+    await apiFetch('/flags/' + selectedFlag.name, { method: 'DELETE' });
+    const name = selectedFlag.name;
+    allFlags = allFlags.filter(f => f.name !== name);
+    selectedFlag = null;
+    showEmptyState();
+    renderFlagList(allFlags);
+    toast(`Flag "${name}" deleted`, 'red');
+  } catch (e) {
+    toast('Delete failed: ' + e.message, 'red');
+  }
+}
+
+// ── Overrides ──────────────────────────────────────────────────────────────
+function renderOverridesTable(overrides) {
+  const tbody = document.getElementById('overrides-tbody');
+  const empty = document.getElementById('overrides-empty');
+  if (!overrides.length) {
+    tbody.innerHTML = '';
+    empty.style.display = 'block';
+    return;
+  }
+  empty.style.display = 'none';
+  tbody.innerHTML = overrides.map(o => `
+    <tr>
+      <td><span class="badge ${typeBadgeClass(o.type)}">${o.type}</span></td>
+      <td style="font-family:monospace; font-size:13px;">${escHtml(o.targetId)}</td>
+      <td>
+        <span class="badge ${o.enabled ? 'badge-green' : 'badge-red'}">
+          ${o.enabled ? 'Enabled' : 'Disabled'}
+        </span>
+      </td>
+      <td style="text-align:right">
+        <button class="btn-icon" onclick="removeOverride('${escHtml(o.type)}','${escHtml(o.targetId)}')" title="Remove override">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>
+        </button>
+      </td>
+    </tr>
+  `).join('');
+}
+
+async function addOverride() {
+  const type    = document.getElementById('ov-type').value;
+  const target  = document.getElementById('ov-target').value.trim();
+  const enabled = document.getElementById('ov-enabled').value === 'true';
+  const btn     = document.getElementById('add-ov-btn');
+
+  if (!target) { toast('Target ID is required', 'red'); return; }
+
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> Adding…';
+  try {
+    await apiFetch('/flags/' + selectedFlag.name + '/overrides', {
+      method: 'PUT',
+      body: JSON.stringify({ type, targetId: target, enabled }),
+    });
+    document.getElementById('ov-target').value = '';
+    await refreshSelected();
+    toast(`${cap(type)} override added`, 'green');
+  } catch (e) {
+    toast('Failed: ' + e.message, 'red');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> Add Override';
+  }
+}
+
+async function removeOverride(type, targetId) {
+  try {
+    await apiFetch(`/flags/${selectedFlag.name}/overrides/${type}/${encodeURIComponent(targetId)}`, { method: 'DELETE' });
+    await refreshSelected();
+    toast(`Override removed`, 'blue');
+  } catch (e) {
+    toast('Failed: ' + e.message, 'red');
+  }
+}
+
+async function refreshSelected() {
+  selectedFlag = await apiFetch('/flags/' + selectedFlag.name);
+  const idx = allFlags.findIndex(f => f.name === selectedFlag.name);
+  if (idx !== -1) allFlags[idx] = selectedFlag;
+  renderFlagDetail();
+  renderFlagList(allFlags);
+}
+
+// ── Evaluate ───────────────────────────────────────────────────────────────
+async function runEvaluate() {
+  const userId  = document.getElementById('eval-userid').value.trim() || undefined;
+  const groupId = document.getElementById('eval-groupid').value.trim() || undefined;
+  const region  = document.getElementById('eval-region').value.trim() || undefined;
+  const btn     = document.getElementById('eval-btn');
+
+  btn.disabled  = true;
+  btn.innerHTML = '<span class="spinner"></span> Evaluating…';
+  try {
+    const result = await apiFetch('/flags/' + selectedFlag.name + '/evaluate', {
+      method: 'POST',
+      body: JSON.stringify({ userId, groupId, region }),
+    });
+    renderEvalResult(result, { userId, groupId, region });
+  } catch (e) {
+    toast('Evaluation failed: ' + e.message, 'red');
+  } finally {
+    btn.disabled  = false;
+    btn.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="5 3 19 12 5 21 5 3"/></svg> Evaluate';
+  }
+}
+
+function renderEvalResult(result, ctx) {
+  const area = document.getElementById('eval-result-area');
+  area.innerHTML = `
+    <div class="eval-result-card ${result.enabled ? 'enabled' : 'disabled'}">
+      <div class="eval-result-icon">${result.enabled ? '✓' : '✗'}</div>
+      <div class="eval-result-state">${result.enabled ? 'ENABLED' : 'DISABLED'}</div>
+      <span class="badge ${reasonBadgeClass(result.reason)}">${fmtReason(result.reason)}</span>
+      <span class="eval-reason-label">decided by</span>
+      ${ctxSummary(ctx)}
+    </div>`;
+
+  // History
+  evalHistory.unshift({ result, ctx, ts: new Date() });
+  if (evalHistory.length > 5) evalHistory.pop();
+  const histList = document.getElementById('eval-history-list');
+  histList.innerHTML = evalHistory.map(h => `
+    <div class="eval-history-item">
+      <span class="eval-history-dot" style="background:${h.result.enabled ? 'var(--green)' : 'var(--red)'}"></span>
+      <span class="eval-ctx">${ctxText(h.ctx) || 'No context'}</span>
+      <span class="badge ${reasonBadgeClass(h.result.reason)}" style="font-size:10px">${fmtReason(h.result.reason)}</span>
+    </div>
+  `).join('');
+  document.getElementById('eval-history').style.display = evalHistory.length > 1 ? 'block' : 'none';
+}
+
+function ctxSummary(ctx) {
+  const parts = [];
+  if (ctx.userId)  parts.push(`<span class="badge badge-blue" style="font-size:11px">user: ${escHtml(ctx.userId)}</span>`);
+  if (ctx.groupId) parts.push(`<span class="badge badge-purple" style="font-size:11px">group: ${escHtml(ctx.groupId)}</span>`);
+  if (ctx.region)  parts.push(`<span class="badge badge-orange" style="font-size:11px">region: ${escHtml(ctx.region)}</span>`);
+  return parts.length ? `<div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:center">${parts.join('')}</div>` : '<span style="font-size:12px;color:var(--muted)">No context (global default)</span>';
+}
+
+function ctxText(ctx) {
+  const p = [];
+  if (ctx.userId)  p.push('user:' + ctx.userId);
+  if (ctx.groupId) p.push('group:' + ctx.groupId);
+  if (ctx.region)  p.push('region:' + ctx.region);
+  return p.join(', ');
+}
+
+// ── Tabs ───────────────────────────────────────────────────────────────────
+function switchTab(name) {
+  ['overrides', 'evaluate'].forEach(t => {
+    document.getElementById('tab-panel-' + t)?.classList.remove('active');
+    document.getElementById('tab-btn-' + t)?.classList.remove('active');
+  });
+  document.getElementById('tab-' + name)?.classList.add('active');
+  document.getElementById('tab-panel-' + name)?.classList.add('active');
+  document.getElementById('tab-btn-' + name)?.classList.add('active');
+}
+
+// fix: tab panels use id="tab-overrides" / "tab-evaluate"
+// switchTab already works because it targets id="tab-"+name
+
+// ── Create modal ───────────────────────────────────────────────────────────
+function openCreateModal() {
+  document.getElementById('create-name').value = '';
+  document.getElementById('create-desc').value = '';
+  document.getElementById('create-enabled').checked = false;
+  document.getElementById('create-name-error').style.display = 'none';
+  document.getElementById('create-modal').classList.add('open');
+  setTimeout(() => document.getElementById('create-name').focus(), 150);
+}
+function closeCreateModal() {
+  document.getElementById('create-modal').classList.remove('open');
+}
+
+function validateCreateName() {
+  const val = document.getElementById('create-name').value;
+  const err = document.getElementById('create-name-error');
+  const hint = document.querySelector('.input-hint');
+  if (val && !/^[a-zA-Z0-9_-]+$/.test(val)) {
+    err.style.display = 'block';
+    err.textContent = 'Only letters, numbers, _ and - are allowed.';
+    hint.style.display = 'none';
+  } else {
+    err.style.display = 'none';
+    hint.style.display = 'block';
+  }
+}
+
+async function submitCreateFlag() {
+  const name        = document.getElementById('create-name').value.trim();
+  const description = document.getElementById('create-desc').value.trim();
+  const globalEnabled = document.getElementById('create-enabled').checked;
+  const btn         = document.getElementById('create-submit-btn');
+  const errEl       = document.getElementById('create-name-error');
+
+  if (!name) { errEl.style.display = 'block'; errEl.textContent = 'Name is required.'; return; }
+  if (!/^[a-zA-Z0-9_-]+$/.test(name)) { errEl.style.display = 'block'; errEl.textContent = 'Invalid characters in name.'; return; }
+
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> Creating…';
+  try {
+    const flag = await apiFetch('/flags', {
+      method: 'POST',
+      body: JSON.stringify({ name, description: description || undefined, globalEnabled }),
+    });
+    allFlags.push(flag);
+    allFlags.sort((a,b) => a.name.localeCompare(b.name));
+    closeCreateModal();
+    selectedFlag = flag;
+    renderFlagList(allFlags);
+    renderFlagDetail();
+    toast(`Flag "${flag.name}" created`, 'green');
+  } catch (e) {
+    errEl.style.display = 'block';
+    errEl.textContent = e.message;
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = 'Create Flag';
+  }
+}
+
+// ── Confirm dialog ─────────────────────────────────────────────────────────
+function openConfirm() { document.getElementById('confirm-dialog').classList.add('open'); }
+function closeConfirm() { document.getElementById('confirm-dialog').classList.remove('open'); }
+document.getElementById('confirm-ok-btn').addEventListener('click', () => {
+  closeConfirm();
+  if (confirmCallback) { confirmCallback(); confirmCallback = null; }
+});
+
+// Keyboard: Escape closes modals
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') {
+    closeCreateModal();
+    closeConfirm();
+  }
+  if (e.key === 'Enter' && document.getElementById('create-modal').classList.contains('open')) {
+    submitCreateFlag();
+  }
+});
+
+// ── Toast ──────────────────────────────────────────────────────────────────
+function toast(message, color = 'blue') {
+  const container = document.getElementById('toast-container');
+  const el = document.createElement('div');
+  el.className = 'toast';
+  el.innerHTML = `<span class="toast-dot ${color}"></span><span>${escHtml(message)}</span>`;
+  container.appendChild(el);
+  requestAnimationFrame(() => { requestAnimationFrame(() => { el.classList.add('show'); }); });
+  setTimeout(() => {
+    el.classList.remove('show');
+    el.classList.add('hide');
+    el.addEventListener('transitionend', () => el.remove());
+  }, 3000);
+}
+
+// ── Helpers ────────────────────────────────────────────────────────────────
+function typeBadgeClass(type) {
+  return { user: 'badge-blue', group: 'badge-purple', region: 'badge-orange' }[type] ?? 'badge-gray';
+}
+function reasonBadgeClass(reason) {
+  return {
+    user_override: 'badge-blue', group_override: 'badge-purple',
+    region_override: 'badge-orange', global_default: 'badge-gray',
+  }[reason] ?? 'badge-gray';
+}
+function fmtReason(r) {
+  return { user_override: 'User Override', group_override: 'Group Override', region_override: 'Region Override', global_default: 'Global Default' }[r] ?? r;
+}
+function fmtDate(iso) {
+  if (!iso) return '—';
+  return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+}
+function escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function cap(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
+
+// ── Boot ───────────────────────────────────────────────────────────────────
+init();
+</script>
+</body>
+</html>
