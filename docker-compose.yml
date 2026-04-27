@@ -7,8 +7,6 @@ services:
       POSTGRES_DB: feature_flags
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
-    ports:
-      - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -16,6 +14,8 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+    networks:
+      - feature-flag-network
 
   app:
     build:
@@ -23,7 +23,7 @@ services:
       dockerfile: Dockerfile
       target: production
     ports:
-      - "3000:3000"
+      - "${PORT}:3000"
     environment:
       DATABASE_URL: postgres://postgres:postgres@postgres:5432/feature_flags
       PORT: 3000
@@ -32,6 +32,12 @@ services:
       postgres:
         condition: service_healthy
     restart: unless-stopped
+    networks:
+      - feature-flag-network
 
 volumes:
   postgres_data:
+
+networks:
+  feature-flag-network:
+    driver: bridge
